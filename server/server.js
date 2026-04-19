@@ -1,11 +1,14 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const Anthropic = require("@anthropic-ai/sdk");
+const { GoogleGenerativeAI } = require("@google/generative-ai"); // Đổi thư viện
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+// Khởi tạo Gemini (Thay thế Anthropic client)
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 app.use(cors({
   origin: "*",
@@ -24,12 +27,8 @@ app.post("/api/excuses", async (req, res) => {
     return res.status(400).json({ error: "Please provide a situation." });
   }
   try {
-    const message = await client.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 600,
-      messages: [{
-        role: "user",
-        content: `Generate exactly 5 excuses for this situation: "${situation.trim()}"
+    // Cách gọi của Gemini
+    const prompt = `Generate exactly 5 excuses for this situation: "${situation.trim()}"
 
 Rules:
 - Each excuse must be exactly 1 sentence
@@ -43,11 +42,14 @@ Output:
 [excuse 2]
 [excuse 3]
 [excuse 4]
-[excuse 5]`
-      }]
-    });
+[excuse 5]`;
 
-    const excuses = message.content[0].text.trim()
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    // Giữ nguyên logic xử lý chuỗi của bạn để khớp với Frontend
+    const excuses = text.trim()
       .split("\n")
       .map(l => l.trim())
       .filter(l => l.length > 0)
@@ -69,12 +71,7 @@ app.post("/api/story", async (req, res) => {
     return res.status(400).json({ error: "Missing situation or excuse." });
   }
   try {
-    const message = await client.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 500,
-      messages: [{
-        role: "user",
-        content: `Write a convincing excuse story.
+    const prompt = `Write a convincing excuse story.
 
 Situation: "${situation.trim()}"
 Core excuse: "${selectedExcuse.trim()}"
@@ -85,16 +82,22 @@ Rules:
 - Add one small human detail (feeling, name, minor inconvenience)
 - Sound like a real person texting their boss or friend
 - No formal tone, no "I sincerely apologize"
-- Return ONLY the story paragraph, nothing else`
-      }]
-    });
+- Return ONLY the story paragraph, nothing else`;
 
-    const story = message.content[0].text.trim();
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const story = response.text().trim();
+
     res.json({ story });
   } catch (err) {
     console.error("Error:", err.message);
     res.status(500).json({ error: "Couldn't generate the story. Try again." });
   }
+});
+
+app.use((req, res) => res.status(404).json({ error: "Not found." }));
+
+app.listen(PORT, () => console.log(`NoCap Excuse server running on port ${PORT}`));
 });
 
 app.use((req, res) => res.status(404).json({ error: "Not found." }));
