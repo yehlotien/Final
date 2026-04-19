@@ -5,83 +5,76 @@ const cors = require("cors");
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Cho phép tất cả các nguồn truy cập (CORS)
 app.use(cors({ origin: "*", methods: ["GET", "POST"], allowedHeaders: ["Content-Type"] }));
 app.use(express.json());
 
-// Hàm gọi trực tiếp API của Google (Sử dụng model gemini-pro để ổn định nhất)
 async function callGemini(prompt) {
     const API_KEY = process.env.GEMINI_API_KEY;
-    // Sử dụng endpoint v1 và model gemini-pro
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-pro:generateContent?key=${API_KEY}`;
-    
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }]
-        })
-    });
+    // Danh sách các model tiềm năng nhất năm 2026
+    const models = [
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-pro-latest",
+        "gemini-pro"
+    ];
 
-    const data = await response.json();
+    let lastError = null;
 
-    if (!response.ok) {
-        console.error("Google API Error Details:", data);
-        throw new Error(data.error?.message || "Lỗi kết nối Gemini API");
+    for (const modelName of models) {
+        try {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${API_KEY}`;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: prompt }] }]
+                })
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.candidates) {
+                return data.candidates[0].content.parts[0].text;
+            }
+            lastError = data.error?.message || "Unknown error";
+            console.log(`Model ${modelName} failed, trying next...`);
+        } catch (err) {
+            lastError = err.message;
+        }
     }
-
-    // Kiểm tra xem có dữ liệu trả về không
-    if (data.candidates && data.candidates[0].content && data.candidates[0].content.parts) {
-        return data.candidates[0].content.parts[0].text;
-    } else {
-        throw new Error("AI không trả về kết quả, thử lại với nội dung khác.");
-    }
+    throw new Error(`Tất cả model đều thất bại: ${lastError}`);
 }
 
-// Route tạo 5 lời xin lỗi
 app.post("/api/excuses", async (req, res) => {
     const { situation } = req.body;
-    if (!situation) return res.status(400).json({ error: "Vui lòng nhập tình huống." });
+    if (!situation) return res.status(400).json({ error: "Input missing" });
 
     try {
-        const prompt = `Generate exactly 5 short, funny, and creative excuses for: "${situation}". 
-        Return ONLY 5 sentences, one per line. No numbers, no bullets, no symbols.`;
+        const prompt = `Generate exactly 5 short, funny, creative excuses for: "${situation}". 
+        Return ONLY 5 sentences, one per line. No numbers, no bullets.`;
         
         const text = await callGemini(prompt);
-        const excuses = text.trim()
-            .split("\n")
-            .map(l => l.replace(/^[0-9.\-* ]+/, '').trim()) // Xóa bỏ các ký tự đánh số nếu AI tự ý thêm vào
-            .filter(l => l.length > 5)
-            .slice(0, 5);
+        const excuses = text.trim().split("\n")
+            .map(l => l.replace(/^[0-9.\-* ]+/, '').trim())
+            .filter(l => l.length > 5).slice(0, 5);
 
-        if (excuses.length === 0) throw new Error("AI trả về format không đúng.");
-        
         res.json({ excuses });
     } catch (err) {
-        console.error("Excuses Error:", err.message);
-        res.status(500).json({ error: "Không thể tạo lời xin lỗi. Thử lại sau nhé!" });
+        console.error(err);
+        res.status(500).json({ error: "AI đang bận, thử lại sau nhé!" });
     }
 });
 
-// Route tạo câu chuyện chi tiết
 app.post("/api/story", async (req, res) => {
     const { situation, selectedExcuse } = req.body;
-    if (!situation || !selectedExcuse) return res.status(400).json({ error: "Thiếu dữ liệu." });
-
     try {
-        const prompt = `Write a convincing 4-sentence first-person story. 
-        Situation: "${situation}". Core excuse: "${selectedExcuse}". 
-        Sound like a real person texting a friend. Return ONLY the story paragraph.`;
-        
+        const prompt = `Write a 4-sentence first-person story. Situation: "${situation}". Core excuse: "${selectedExcuse}". Return only the story paragraph.`;
         const story = await callGemini(prompt);
         res.json({ story: story.trim() });
     } catch (err) {
-        console.error("Story Error:", err.message);
-        res.status(500).json({ error: "Không thể tạo câu chuyện." });
+        res.status(500).json({ error: "Lỗi tạo cốt truyện." });
     }
 });
 
-// Route kiểm tra server
-app.get("/health", (req, res) => res.json({ status: "ok", message: "Server is running" }));
+app.get("/health", (req, res) => res.json({ status: "ok" }));
 
-app.listen(PORT, () => console.log(`NoCap Excuse Server is live on port ${PORT}`));
+app.listen(PORT, () => console.log(`Server live on ${PORT}`));
