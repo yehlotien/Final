@@ -8,7 +8,7 @@ const PORT = process.env.PORT || 3001;
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const model = genAI.getGenerativeModel({ 
-  model: "models/gemini-1.5-flash",
+  model: "gemini-1.5-flash-latest",
 }, { apiVersion: 'v1' }); // Thêm đoạn này để tránh lỗi v1beta
 
 app.use(cors({
